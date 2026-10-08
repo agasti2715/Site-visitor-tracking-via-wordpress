@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Home — Acme Demo Store</title>
+  <style>body{font:16px system-ui;max-width:640px;margin:40px auto;padding:0 16px}nav a{margin-right:12px}input,button{font:inherit;padding:6px;margin:4px 0}</style>
+  <script>
+    // Demo only: remember the site id from ?site= so it survives page links.
+    var id = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('demo_site');
+    if (id) {
+      sessionStorage.setItem('demo_site', id);
+      var s = document.createElement('script');
+      s.async = true; s.src = 'http://localhost:4000/t.js'; s.setAttribute('data-site', id); s.setAttribute('data-forms', 'true');
+      document.head.appendChild(s);
+    }
+  </script>
+</head>
+<body>
+  <nav><a href="/">Home</a><a href="/pricing">Pricing</a><a href="/contact">Contact</a></nav>
+  <h1>Home</h1>
+  <p>Welcome to the demo store. Browse around — each page you open shows up in the tracker dashboard.</p>
+</body>
+</html>

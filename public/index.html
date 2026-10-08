@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Site Visit Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%232f6fed'/><circle cx='16' cy='16' r='5' fill='white'/></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span> Site Visit Tracker</div>
+    <form id="add-form" class="add-form">
+      <input id="add-url" type="text" placeholder="Enter a website URL, e.g. mycompany.com" autocomplete="off" required>
+      <button type="submit">Track site</button>
+    </form>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <h2>Your websites</h2>
+      <ul id="site-list"></ul>
+      <p id="no-sites" class="muted small" hidden>No websites yet. Enter a URL above to start.</p>
+    </aside>
+
+    <main id="main">
+      <section id="empty" class="empty">
+        <h1>Who is visiting your websites?</h1>
+        <p>Enter a website URL above. You will get a one-line snippet to paste into that site —
+           from then on every visit shows up here with the visitor's location, their company or
+           network, and their full visit history.</p>
+      </section>
+
+      <section id="site-view" hidden>
+        <div class="site-head">
+          <div>
+            <h1 id="site-name"></h1>
+            <a id="site-url" class="muted" target="_blank" rel="noopener"></a>
+          </div>
+          <div class="site-actions">
+            <select id="range" aria-label="Date range">
+              <option value="1">Last 24 hours</option>
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last 12 months</option>
+            </select>
+            <button id="toggle-snippet" class="ghost" type="button">Install code</button>
+            <button id="delete-site" class="ghost danger" type="button">Remove</button>
+          </div>
+        </div>
+
+        <div id="snippet" class="card snippet" hidden>
+          <h3>Start tracking <span id="snippet-host"></span></h3>
+          <p id="local-warning" class="warn" hidden>
+            This tracker is running on your own computer, so sites on the internet can't send visits to it yet.
+            Deploy it first, then download the plugin from the deployed dashboard.
+          </p>
+
+          <div class="install-option">
+            <h4>WordPress site <span class="pill company">Recommended — no code</span></h4>
+            <ol class="steps">
+              <li><a id="wp-download" class="button-link" href="#">Download the plugin for this site</a></li>
+              <li>In WordPress: <strong>Plugins → Add New → Upload Plugin</strong>, choose the file, click <strong>Install Now</strong>.</li>
+              <li>Click <strong>Activate</strong>. That's it — nothing to fill in.</li>
+            </ol>
+            <p class="muted small">Visits are stored in the site's own database, so nothing leaves your client's server
+              and page speed is untouched. Names are picked up from logged-in users and anyone who fills in a form.
+              Options are under <strong>Settings → Site Visit Tracker</strong>.</p>
+            <div class="connection">
+              <span id="conn-status" class="muted">Not connected yet.</span>
+              <button id="conn-check" class="ghost" type="button">Check connection</button>
+              <details class="advanced">
+                <summary class="muted small">Key doesn't match?</summary>
+                <p class="muted small">If you generated a new key in WordPress, paste it here (Settings → Site Visit Tracker → Site key).</p>
+                <div class="table-tools">
+                  <input id="conn-key" type="text" placeholder="Site key from WordPress" autocomplete="off">
+                  <button id="conn-save" class="ghost" type="button">Save key</button>
+                </div>
+              </details>
+            </div>
+          </div>
+
+          <details class="install-option">
+            <summary>Any other site (paste one line of code)</summary>
+            <p>Paste this just before <code>&lt;/head&gt;</code> on every page of the site (or once in your site template / theme header).</p>
+            <div class="code-row"><pre id="snippet-code"></pre><button id="copy-snippet" type="button">Copy</button></div>
+            <p class="muted small">To see <strong>names</strong>, call this when a visitor logs in or submits a form:</p>
+            <pre class="small-code">svt.identify({ name: 'Jane Doe', email: 'jane@acme.com', company: 'Acme Inc' })</pre>
+          </details>
+          <p id="waiting" class="waiting" hidden><span class="pulse"></span> Waiting for the first visit…</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><span>Visitors</span><strong id="k-visitors">–</strong></div>
+          <div class="kpi"><span>Visits</span><strong id="k-visits">–</strong></div>
+          <div class="kpi"><span>Page views</span><strong id="k-pageviews">–</strong></div>
+          <div class="kpi"><span>Identified people</span><strong id="k-identified">–</strong></div>
+        </div>
+
+        <div class="card">
+          <h3>Visitors per day</h3>
+          <div id="chart" class="chart"></div>
+          <div id="chart-axis" class="chart-axis"></div>
+        </div>
+
+        <div class="grid">
+          <div class="card"><h3>Companies</h3><ol id="t-companies" class="bars"></ol></div>
+          <div class="card"><h3>Countries</h3><ol id="t-countries" class="bars"></ol></div>
+          <div class="card"><h3>Regions</h3><ol id="t-regions" class="bars"></ol></div>
+          <div class="card"><h3>Top pages</h3><ol id="t-pages" class="bars"></ol></div>
+          <div class="card"><h3>Came from</h3><ol id="t-referrers" class="bars"></ol></div>
+          <div class="card"><h3>Live activity</h3><ul id="activity" class="activity"></ul></div>
+        </div>
+
+        <div class="card">
+          <div class="table-head">
+            <h3>Visitors</h3>
+            <div class="table-tools">
+              <input id="search" type="search" placeholder="Search name, company, city…">
+              <button id="export" class="ghost" type="button">Export CSV</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Visitor</th><th>Company / network</th><th>Location</th>
+                <th class="num">Visits</th><th class="num">Pages</th><th>Device</th><th>Last seen</th>
+              </tr></thead>
+              <tbody id="visitors"></tbody>
+            </table>
+          </div>
+          <p id="no-visitors" class="muted small" hidden>No visitors in this period yet.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="drawer-bg" class="drawer-bg" hidden></div>
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <button id="drawer-close" class="close" type="button" aria-label="Close">×</button>
+    <div id="drawer-body"></div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>

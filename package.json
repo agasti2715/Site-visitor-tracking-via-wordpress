@@ -1,0 +1,16 @@
+{
+  "name": "site-visit-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted visitor tracker: who visits your websites, their company and region, and their visit history.",
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
+    "demo": "node demo/serve.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

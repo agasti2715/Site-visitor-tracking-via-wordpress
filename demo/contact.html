@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Contact us — Acme Demo Store</title>
+  <style>body{font:16px system-ui;max-width:640px;margin:40px auto;padding:0 16px}nav a{margin-right:12px}input,button{font:inherit;padding:6px;margin:4px 0}</style>
+  <script>
+    // Demo only: remember the site id from ?site= so it survives page links.
+    var id = new URLSearchParams(location.search).get('site') || sessionStorage.getItem('demo_site');
+    if (id) {
+      sessionStorage.setItem('demo_site', id);
+      var s = document.createElement('script');
+      s.async = true; s.src = 'http://localhost:4000/t.js'; s.setAttribute('data-site', id); s.setAttribute('data-forms', 'true');
+      document.head.appendChild(s);
+    }
+  </script>
+</head>
+<body>
+  <nav><a href="/">Home</a><a href="/pricing">Pricing</a><a href="/contact">Contact</a></nav>
+  <h1>Contact us</h1>
+  <!-- Field names copied from Contact Form 7, WordPress's most common form plugin.
+       Nothing on this page calls the tracker: the tracker notices the form by itself. -->
+  <form id="f">
+    <label for="n">Your name</label><br><input id="n" name="your-name" required><br>
+    <label for="e">Your email</label><br><input id="e" name="your-email" type="email" required><br>
+    <label for="c">Company</label><br><input id="c" name="your-company"><br>
+    <label for="m">Message</label><br><input id="m" name="your-message"><br>
+    <button>Send</button>
+  </form>
+  <p id="ok" hidden>Thanks, we'll be in touch.</p>
+  <script>
+    document.getElementById('f').addEventListener('submit', function (e) {
+      e.preventDefault(); // like an AJAX form plugin
+      document.getElementById('ok').hidden = false;
+    });
+  </script>
+</body>
+</html>

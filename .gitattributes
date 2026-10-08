@@ -1,0 +1,3 @@
+# Store text with LF in the repo; batch files must keep CRLF to run in cmd.exe.
+* text=auto
+*.bat text eol=crlf
