@@ -1,16 +1,41 @@
-import { DatabaseSync } from 'node:sqlite';
+// Storage. Turso (hosted, SQLite-compatible) when TURSO_DATABASE_URL is set,
+// otherwise a local SQLite file — same SQL either way.
+import { createClient } from '@libsql/client';
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, relative } from 'node:path';
 
-const dbPath = resolve(process.env.DB_PATH || './data/tracker.db');
-mkdirSync(dirname(dbPath), { recursive: true });
+const remoteUrl = process.env.TURSO_DATABASE_URL;
+export const isRemote = Boolean(remoteUrl);
 
-export const db = new DatabaseSync(dbPath);
+function localUrl() {
+  const path = resolve(process.env.DB_PATH || './data/tracker.db');
+  mkdirSync(dirname(path), { recursive: true });
+  // A relative path keeps spaces and drive letters out of the URL.
+  return 'file:' + relative(process.cwd(), path).replace(/\\/g, '/');
+}
 
-db.exec(`
-  PRAGMA journal_mode = WAL;
-  PRAGMA foreign_keys = ON;
+export const db = createClient(isRemote
+  ? { url: remoteUrl, authToken: process.env.TURSO_AUTH_TOKEN }
+  : { url: localUrl() });
 
+// libsql rejects undefined and booleans; SQLite stores both as integers anyway.
+const clean = (args = []) => args.map((a) => (a === undefined ? null : typeof a === 'boolean' ? Number(a) : a));
+const plain = (rs) => rs.rows.map((row) => ({ ...row }));
+
+export const stmt = (sql, args = []) => ({ sql, args: clean(args) });
+export async function all(sql, args) { return plain(await db.execute(stmt(sql, args))); }
+export async function get(sql, args) { return (await all(sql, args))[0]; }
+export async function run(sql, args) {
+  const rs = await db.execute(stmt(sql, args));
+  return { changes: rs.rowsAffected, lastId: rs.lastInsertRowid == null ? null : Number(rs.lastInsertRowid) };
+}
+/** Several statements in one round trip and one transaction. */
+export async function batch(statements, mode = 'write') {
+  if (!statements.length) return [];
+  return db.batch(statements, mode);
+}
+
+const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sites (
     id          TEXT PRIMARY KEY,
     url         TEXT NOT NULL,
@@ -67,25 +92,31 @@ db.exec(`
     data        TEXT NOT NULL,
     fetched_at  TEXT NOT NULL
   );
-`);
+`;
 
 // Columns added after the first release. Adding them here keeps existing databases working.
-const columns = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
-const addColumn = (table, name, type) => {
-  if (!columns(table).includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
-};
+const LATER_COLUMNS = [
+  // A site whose visits come from the WordPress plugin instead of the hosted tracker script.
+  ['sites', 'wp_url', 'TEXT'],
+  ['sites', 'wp_key', 'TEXT'],
+  ['sites', 'cursor_id', 'INTEGER NOT NULL DEFAULT 0'],
+  ['sites', 'cursor_time', 'TEXT'],
+  ['sites', 'last_sync', 'TEXT'],
+  ['sites', 'last_error', 'TEXT'],
+  // The id the row had on the WordPress site, so re-syncing can't duplicate visits.
+  ['pageviews', 'remote_id', 'INTEGER'],
+];
 
-// A site whose visits come from the WordPress plugin instead of the hosted tracker script.
-addColumn('sites', 'wp_url', 'TEXT');
-addColumn('sites', 'wp_key', 'TEXT');
-addColumn('sites', 'cursor_id', 'INTEGER NOT NULL DEFAULT 0');
-addColumn('sites', 'cursor_time', 'TEXT');
-addColumn('sites', 'last_sync', 'TEXT');
-addColumn('sites', 'last_error', 'TEXT');
+async function init() {
+  if (!isRemote) await db.execute('PRAGMA journal_mode = WAL');
+  await db.executeMultiple(SCHEMA);
+  for (const [table, column, type] of LATER_COLUMNS) {
+    const existing = (await all(`PRAGMA table_info(${table})`)).map((c) => c.name);
+    if (!existing.includes(column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+  await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS pageviews_remote
+                    ON pageviews (site_id, remote_id) WHERE remote_id IS NOT NULL`);
+}
 
-// The id the row had on the WordPress site, so re-syncing can't duplicate visits.
-addColumn('pageviews', 'remote_id', 'INTEGER');
-db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS pageviews_remote
-         ON pageviews (site_id, remote_id) WHERE remote_id IS NOT NULL`);
-
-export const q = (sql) => db.prepare(sql);
+/** Resolves once the tables exist. Await it before serving requests. */
+export const ready = init();

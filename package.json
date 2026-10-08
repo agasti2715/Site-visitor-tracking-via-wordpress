@@ -4,13 +4,17 @@
   "private": true,
   "description": "Self-hosted visitor tracker: who visits your websites, their company and region, and their visit history.",
   "type": "module",
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
     "dev": "node --watch --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
-    "demo": "node demo/serve.js"
+    "demo": "node demo/serve.js",
+    "copy-to-turso": "node --env-file-if-exists=.env scripts/copy-to-turso.mjs"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "express": "^4.21.2"
   }
 }

@@ -1,0 +1,27 @@
+# Render Blueprint: Render → New → Blueprint → pick this repo.
+# Secrets marked "sync: false" are typed into Render's dashboard, never committed here.
+services:
+  - type: web
+    name: site-visit-tracker
+    runtime: node
+    plan: free
+    # Singapore is the free region closest to India; create the Turso database in Mumbai
+    # (aws-ap-south-1) so the two are near each other.
+    region: singapore
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TRUST_PROXY
+        value: "true"
+      - key: RESOLVE_LOCALHOST_AS_SELF
+        value: "false"
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false

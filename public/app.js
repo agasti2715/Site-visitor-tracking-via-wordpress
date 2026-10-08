@@ -152,14 +152,21 @@ async function openSite(id, showSnippet = false) {
   $('snippet-code').textContent = snippetFor(current);
   $('wp-download').href = `/api/sites/${encodeURIComponent(current.id)}/wordpress-plugin.zip`;
   showConnection();
-  // A tracker on localhost can only be reached by sites on this same machine.
+  // The hosted line of code on localhost can only be reached by sites on this same machine.
   $('local-warning').hidden = !(/^(localhost|127\.|\[::1\])/.test(location.hostname) && current.host !== 'localhost');
   $('search').value = '';
   $('snippet').hidden = !(showSnippet || !current.pageviews);
   await refresh();
+  // A hosted dashboard may have been asleep: catch this site up now rather than in a minute.
+  if (current.connected) {
+    api(`/sites/${current.id}/sync`, { method: 'POST' }).then(refresh).catch(() => {});
+  }
   clearInterval(refreshTimer);
-  refreshTimer = setInterval(refresh, 15000);
+  // Once a minute, and only while the tab is on screen: every refresh reads the database.
+  refreshTimer = setInterval(() => { if (!document.hidden) refresh(); }, 60000);
 }
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden && current) refresh(); });
 
 // ───────────────────────── WordPress connection ─────────────────────────
 

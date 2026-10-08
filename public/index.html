@@ -52,11 +52,6 @@
 
         <div id="snippet" class="card snippet" hidden>
           <h3>Start tracking <span id="snippet-host"></span></h3>
-          <p id="local-warning" class="warn" hidden>
-            This tracker is running on your own computer, so sites on the internet can't send visits to it yet.
-            Deploy it first, then download the plugin from the deployed dashboard.
-          </p>
-
           <div class="install-option">
             <h4>WordPress site <span class="pill company">Recommended — no code</span></h4>
             <ol class="steps">
@@ -83,6 +78,10 @@
 
           <details class="install-option">
             <summary>Any other site (paste one line of code)</summary>
+            <p id="local-warning" class="warn" hidden>
+              This dashboard is running on your own computer, so a site on the internet can't send visits to this
+              line of code. Use the line from the hosted dashboard instead. (The WordPress plugin above is not affected.)
+            </p>
             <p>Paste this just before <code>&lt;/head&gt;</code> on every page of the site (or once in your site template / theme header).</p>
             <div class="code-row"><pre id="snippet-code"></pre><button id="copy-snippet" type="button">Copy</button></div>
             <p class="muted small">To see <strong>names</strong>, call this when a visitor logs in or submits a form:</p>

@@ -34,7 +34,7 @@ The plugin also finds out who visitors are, with nothing to set up:
 
 Everything can be switched off under **Settings → Site Visit Tracker**. The plugin files are in `wordpress/site-visit-tracker/`.
 
-> The plugin sends visits to the address the dashboard was opened on, or to `PUBLIC_URL` if set. A tracker still running on `localhost` can't be reached by a live WordPress site. Deploy the tracker first, then download the plugin from the deployed dashboard.
+> The plugin stores visits on the WordPress site itself, so it works whether the dashboard runs on your laptop or on Render. The dashboard catches up on everything it missed whenever it runs.
 
 ## How it works
 
@@ -74,7 +74,9 @@ Every earlier and later visit from that browser is then linked to the name.
 
 ## Run it locally
 
-Needs Node.js 22.13 or newer. It uses Node's built-in SQLite, so there is no database to install.
+Needs Node.js 22.13 or newer. With no Turso settings in `.env`, data is kept in a local SQLite file, so there is no database to install.
+
+On Windows you can also double-click `start.bat`.
 
 ```bash
 npm install
@@ -99,20 +101,25 @@ npm run demo
 | Variable | Default | What it does |
 |---|---|---|
 | `PORT` | `4000` | Port for the tracker and dashboard |
-| `PUBLIC_URL` | *(empty)* | The tracker's public address, e.g. `https://track.yourdomain.com`. Built into the WordPress plugin download. |
-| `DASHBOARD_PASSWORD` | *(empty)* | Turns on a login for the dashboard (user `admin`). **Set this before deploying.** |
+| `DASHBOARD_PASSWORD` | *(empty)* | Turns on a login for the dashboard (any username, this password). **Always set it on a hosted dashboard.** |
+| `TURSO_DATABASE_URL` | *(empty)* | Hosted database address (`libsql://…`). Empty = local SQLite file. |
+| `TURSO_AUTH_TOKEN` | *(empty)* | Token for that database. Secret: never commit it or paste it anywhere public. |
 | `TRUST_PROXY` | `false` | Set to `true` behind nginx, Caddy, Render, Railway and similar, so the real visitor IP is used |
-| `DB_PATH` | `./data/tracker.db` | SQLite file |
+| `DB_PATH` | `./data/tracker.db` | Local SQLite file, used when no Turso URL is set |
 | `IPAPI_KEY` | *(empty)* | ip-api.com Pro key. The free tier allows 45 lookups a minute and **non-commercial use only**. |
 | `RESOLVE_LOCALHOST_AS_SELF` | `true` in the example | Local testing: `localhost` visits are looked up as your own public IP. Set to `false` in production. |
 
-## Deploying
+## Hosting it for free (Render + Turso)
 
-The tracker must be reachable from the internet over HTTPS, for example at `https://track.yourdomain.com`, for real sites to send it data. Before going live:
+- **Render** (free web service) runs the dashboard and gives it a shareable `*.onrender.com` link. It sleeps after 15 minutes without visitors and takes about a minute to wake. Nothing is lost while it sleeps: the WordPress sites keep recording, and the dashboard catches up when it wakes.
+- **Turso** (free, no card) keeps the data. Render's free disk is wiped on every restart, so the data can't live there.
 
-- Set `DASHBOARD_PASSWORD`, `TRUST_PROXY=true` and `RESOLVE_LOCALHOST_AS_SELF=false`.
-- Keep `data/` on a persistent disk and back it up.
-- Paste the snippet from the deployed dashboard. It points at whatever address the dashboard is served from.
+1. **Turso**: create a database in **Mumbai (aws-ap-south-1)**. Copy its URL (`libsql://…`) and create a token.
+2. **Move your existing data** (once): put both values in your local `.env`, then run `npm run copy-to-turso`. It refuses to run twice.
+3. **Render**: New → Blueprint → this repo. `render.yaml` sets everything except three secrets, which you type in: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` and `DASHBOARD_PASSWORD`.
+4. Open the `*.onrender.com` link, log in with any username and the password, and share it.
+
+Every push to `main` redeploys automatically. Free-tier limits change, so check Render's and Turso's pricing pages now and then.
 
 ## Privacy and law
 
@@ -122,10 +129,14 @@ This tool stores IP addresses, locations and, when identified, names and emails.
 
 ```
 src/server.js   API, collector (/collect), dashboard auth
-src/db.js       SQLite schema
+src/db.js       database: Turso when configured, else a local SQLite file
+src/services/   wpSync.js: pulls visits from the WordPress plugins
 src/geo.js      IP → location / organisation, with cache and rate-limit handling
 src/ua.js       browser / OS / device, bot filter
 public/t.js     the tracking snippet your sites load
 public/         the dashboard (index.html, app.js, style.css)
+wordpress/      the WordPress plugin (the dashboard builds a zip per site with its key)
+scripts/        copy-to-turso.mjs: one-off move of local data to Turso
+render.yaml     Render deployment settings
 demo/           a 3-page demo site for local testing
 ```
