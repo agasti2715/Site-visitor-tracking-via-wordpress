@@ -90,6 +90,15 @@ function svt_rest_collect( WP_REST_Request $request ) {
 		return new WP_REST_Response( null, 204 );
 	}
 
+	// The visitor moved the mouse, tapped or typed: a person, not a scanner. Sent once per browser.
+	if ( isset( $body['type'] ) && 'engage' === $body['type'] ) {
+		$wpdb->query( $wpdb->prepare(
+			"UPDATE $visitors SET engaged = 1, updated_at = %s WHERE id = %d AND engaged = 0",
+			$now, $visitor_id
+		) );
+		return new WP_REST_Response( null, 204 );
+	}
+
 	if ( isset( $body['type'] ) && 'identify' === $body['type'] ) {
 		$fields = array();
 		foreach ( array( 'name', 'email', 'company' ) as $field ) {
@@ -143,16 +152,18 @@ function svt_rest_export( WP_REST_Request $request ) {
 
 	$rows = $wpdb->get_results( $wpdb->prepare(
 		"SELECT e.id, e.visitor_id, e.session_key, e.url, e.path, e.title, e.referrer, e.ip, e.user_agent, e.created_at,
-		        v.visitor_key, v.name, v.email, v.company, v.first_seen, v.last_seen
+		        v.visitor_key, v.name, v.email, v.company, v.engaged, v.first_seen, v.last_seen
 		 FROM $events e JOIN $visitors v ON v.id = e.visitor_id
 		 WHERE e.id > %d ORDER BY e.id ASC LIMIT %d",
 		$since_id, $limit
 	), ARRAY_A );
 
-	// Names can arrive without a new page view, so send recently changed people too.
+	// Names and the "a person interacted" flag can arrive after the page view was already
+	// exported, so send recently changed people too.
 	$people = $wpdb->get_results( $wpdb->prepare(
-		"SELECT visitor_key, name, email, company, first_seen, last_seen, updated_at
-		 FROM $visitors WHERE updated_at > %s AND (name IS NOT NULL OR email IS NOT NULL OR company IS NOT NULL)
+		"SELECT visitor_key, name, email, company, engaged, first_seen, last_seen, updated_at
+		 FROM $visitors WHERE updated_at > %s
+		   AND (name IS NOT NULL OR email IS NOT NULL OR company IS NOT NULL OR engaged = 1)
 		 ORDER BY updated_at ASC LIMIT %d",
 		$since_time, $limit
 	), ARRAY_A );

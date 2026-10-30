@@ -25,6 +25,7 @@ function svt_install_tables() {
 		name varchar(190) DEFAULT NULL,
 		email varchar(190) DEFAULT NULL,
 		company varchar(190) DEFAULT NULL,
+		engaged tinyint(1) NOT NULL DEFAULT 0,
 		first_seen datetime NOT NULL,
 		last_seen datetime NOT NULL,
 		updated_at datetime NOT NULL,

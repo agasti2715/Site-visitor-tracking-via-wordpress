@@ -81,6 +81,8 @@
     payload.site = site;
     payload.vid = vid();
     if (payload.type === 'pageview') payload.sid = sessionId();
+    // Remembered only once it is actually sent, i.e. after consent.
+    if (payload.type === 'engage') { try { localStorage.setItem('svt_engaged', '1'); } catch (e) {} }
     var body = JSON.stringify(payload);
     if (navigator.sendBeacon && navigator.sendBeacon(endpoint, new Blob([body], { type: 'text/plain' }))) return;
     try { fetch(endpoint, { method: 'POST', body: body, keepalive: true, mode: 'no-cors' }); } catch (e) {}
@@ -136,6 +138,23 @@
     document.addEventListener('submit', function (e) {
       try { var who = e.target && e.target.tagName === 'FORM' && fromForm(e.target); if (who) identify(who); } catch (err) {}
     }, true);
+  }
+
+  // A real person moves the mouse, turns the wheel, taps or types within seconds; email
+  // link scanners and most bots never do. One signal per browser, ever — so it adds
+  // almost nothing to the site's load. (Plain "scroll" is left out: a page can scroll
+  // itself on load, which would make a bot look human.)
+  var alreadyEngaged = false;
+  try { alreadyEngaged = localStorage.getItem('svt_engaged') === '1'; } catch (e) {}
+  if (!alreadyEngaged) {
+    var signals = ['pointermove', 'pointerdown', 'wheel', 'touchstart', 'keydown'];
+    var opts = { passive: true, capture: true };
+    var onFirstInteraction = function (e) {
+      if (e && e.isTrusted === false) return; // ignore events faked by a script
+      for (var s = 0; s < signals.length; s++) window.removeEventListener(signals[s], onFirstInteraction, opts);
+      send({ type: 'engage', url: location.href });
+    };
+    for (var s = 0; s < signals.length; s++) window.addEventListener(signals[s], onFirstInteraction, opts);
   }
 
   // Single-page apps: count client-side route changes too.

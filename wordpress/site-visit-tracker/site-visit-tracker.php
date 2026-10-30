@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Site Visit Tracker
  * Description:       Records who visits this site — their company, region and visit history — in this site's own database. No external requests, no page-speed cost.
- * Version:           1.0.2
+ * Version:           1.0.4
  * Requires at least: 5.6
  * Requires PHP:      7.2
  * License:           GPL-2.0-or-later
@@ -13,11 +13,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SVT_VERSION', '1.0.2' );
+define( 'SVT_VERSION', '1.0.4' );
 define( 'SVT_FILE', __FILE__ );
 define( 'SVT_OPTION', 'svt_settings' );
 // The dashboard fills this in when you download the plugin, so connecting needs no typing.
 define( 'SVT_BAKED_KEY', '__SVT_API_KEY__' );
+// Optional: Apollo.io website-visitor tracker id, filled in for sites that use Apollo.
+define( 'SVT_BAKED_APOLLO', '__SVT_APOLLO_ID__' );
 
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/rest.php';
@@ -32,7 +34,14 @@ function svt_defaults() {
 		'respect_consent'=> 1,
 		'keep_days'      => 180,
 		'ip_days'        => 30,
+		'apollo_app_id'  => svt_valid_apollo_id( SVT_BAKED_APOLLO ),
 	);
+}
+
+// Apollo tracker ids are 24 hex characters; anything else (including the placeholder) means "off".
+function svt_valid_apollo_id( $id ) {
+	$id = strtolower( trim( (string) $id ) );
+	return preg_match( '/^[a-f0-9]{24}$/', $id ) ? $id : '';
 }
 
 function svt_settings() {
@@ -113,6 +122,7 @@ function svt_perfmatters_exclude( $exclusions ) {
 	$exclusions   = is_array( $exclusions ) ? $exclusions : array();
 	$exclusions[] = 'site-visit-tracker/assets/t.js';
 	$exclusions[] = 'svt-tracker';
+	$exclusions[] = 'svt-apollo'; // the Apollo loader below: it already waits for an idle browser
 	return $exclusions;
 }
 add_filter( 'perfmatters_delay_js_exclusions', 'svt_perfmatters_exclude' );
@@ -139,4 +149,52 @@ function svt_script_tag( $tag, $handle, $src ) {
 	$attributes .= ' data-cfasync="false" data-no-optimize="1" data-no-defer="1" data-no-minify="1"';
 
 	return str_replace( ' src=', $attributes . ' src=', $tag );
+}
+
+// ─────────────────────────── Apollo.io (optional) ───────────────────────────
+// Apollo names the companies behind visits. Its loader is Apollo's own snippet, but started
+// only once the page has finished loading and the browser is idle, so it can never slow the
+// page down or affect Core Web Vitals. With a consent manager present it also waits for the
+// visitor to accept marketing cookies. Apollo identifies companies by IP address, so starting
+// a second or two later loses next to nothing.
+
+add_action( 'wp_footer', 'svt_print_apollo', 99 );
+function svt_print_apollo() {
+	if ( is_admin() || is_feed() || is_robots() || is_trackback() ) {
+		return;
+	}
+	$s      = svt_settings();
+	$app_id = svt_valid_apollo_id( $s['apollo_app_id'] );
+	if ( ! $app_id ) {
+		return;
+	}
+	if ( ! empty( $s['skip_team'] ) && current_user_can( 'edit_posts' ) ) {
+		return;
+	}
+	$needs_consent = ! empty( $s['respect_consent'] ) && function_exists( 'wp_has_consent' );
+	?>
+<script id="svt-apollo-js" data-cfasync="false" data-no-optimize="1" data-no-defer="1" data-no-minify="1">
+(function () {
+	var appId = <?php echo wp_json_encode( $app_id ); ?>, needsConsent = <?php echo $needs_consent ? 'true' : 'false'; ?>, started = false;
+	function allowed() {
+		return !needsConsent || (typeof window.wp_has_consent === 'function' && window.wp_has_consent('marketing') === true);
+	}
+	function start() {
+		if (started || !allowed()) return;
+		started = true;
+		var n = Math.random().toString(36).substring(7), o = document.createElement('script');
+		o.src = 'https://assets.apollo.io/micro/website-tracker/tracker.iife.js?nocache=' + n;
+		o.async = true; o.defer = true;
+		o.onload = function () { window.trackingFunctions.onLoad({ appId: appId }); };
+		document.head.appendChild(o);
+	}
+	function whenIdle() {
+		if ('requestIdleCallback' in window) requestIdleCallback(start, { timeout: 3000 }); else setTimeout(start, 1);
+	}
+	if (document.readyState === 'complete') whenIdle(); else window.addEventListener('load', whenIdle);
+	document.addEventListener('wp_listen_for_consent_change', start); // visitor clicks Accept
+	setTimeout(start, 6000); // consent tools that load late
+})();
+</script>
+	<?php
 }

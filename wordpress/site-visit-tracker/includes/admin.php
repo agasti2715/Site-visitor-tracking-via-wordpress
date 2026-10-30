@@ -28,6 +28,7 @@ function svt_sanitize( $in ) {
 	}
 	$out['keep_days'] = min( 3650, max( 7, (int) ( isset( $in['keep_days'] ) ? $in['keep_days'] : 180 ) ) );
 	$out['ip_days']   = min( (int) $out['keep_days'], max( 1, (int) ( isset( $in['ip_days'] ) ? $in['ip_days'] : 30 ) ) );
+	$out['apollo_app_id'] = svt_valid_apollo_id( isset( $in['apollo_app_id'] ) ? wp_unslash( $in['apollo_app_id'] ) : '' );
 	if ( ! empty( $in['regenerate_key'] ) ) {
 		$out['api_key'] = wp_generate_password( 40, false, false );
 	}
@@ -93,6 +94,18 @@ function svt_render_settings() {
 					<th scope="row">Your team</th>
 					<td><label><input type="checkbox" name="<?php echo esc_attr( $name ); ?>[skip_team]" value="1" <?php checked( $s['skip_team'] ); ?>>
 						Don't record visits from logged-in authors, editors and admins</label></td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="svt-apollo">Apollo.io tracker ID</label></th>
+					<td>
+						<input id="svt-apollo" class="regular-text" type="text" name="<?php echo esc_attr( $name ); ?>[apollo_app_id]" value="<?php echo esc_attr( $s['apollo_app_id'] ); ?>" placeholder="Leave empty to turn Apollo off">
+						<p class="description">
+							Loads Apollo's website-visitor tracker so Apollo can name the companies visiting this site.
+							It starts after the page has finished loading (no effect on speed) and, with a consent
+							manager, only after the visitor accepts marketing cookies.
+							<?php echo $s['apollo_app_id'] ? '<strong>Apollo is on.</strong>' : 'Apollo is off.'; ?>
+						</p>
+					</td>
 				</tr>
 				<tr>
 					<th scope="row">Consent</th>

@@ -45,6 +45,9 @@
               <option value="90">Last 90 days</option>
               <option value="365">Last 12 months</option>
             </select>
+            <label class="switch" title="Email link scanners, uptime checkers and bots that run a real browser">
+              <input id="show-bots" type="checkbox"> Show automated
+            </label>
             <button id="toggle-snippet" class="ghost" type="button">Install code</button>
             <button id="delete-site" class="ghost danger" type="button">Remove</button>
           </div>
@@ -96,6 +99,7 @@
           <div class="kpi"><span>Page views</span><strong id="k-pageviews">–</strong></div>
           <div class="kpi"><span>Identified people</span><strong id="k-identified">–</strong></div>
         </div>
+        <p id="bots-note" class="bots-note" hidden></p>
 
         <div class="card">
           <h3>Visitors per day</h3>

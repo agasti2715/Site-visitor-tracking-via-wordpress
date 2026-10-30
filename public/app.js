@@ -74,7 +74,9 @@ function title(v) {
   return 'Anonymous visitor';
 }
 function who(v) {
-  const vpn = v.uses_vpn ? '<span class="pill hosting">Uses VPN</span>' : '';
+  const vpn = v.automated
+    ? '<span class="pill bot">Likely automated</span>'
+    : v.uses_vpn ? '<span class="pill hosting">Uses VPN</span>' : '';
   if (v.name || v.email) {
     return `<div class="who"><strong>${esc(title(v))}<span class="pill person">Identified</span>${vpn}</strong>
       <span class="sub">${esc([v.name && v.email, v.company].filter(Boolean).join(' · '))}</span></div>`;
@@ -206,18 +208,39 @@ $('conn-save').addEventListener('click', () => {
 
 // ───────────────────────── Data ─────────────────────────
 
+// "Show automated" is a per-viewer preference, remembered in this browser only.
+const BOTS_PREF = 'svt_show_bots';
+try { $('show-bots').checked = localStorage.getItem(BOTS_PREF) === '1'; } catch { /* private window */ }
+$('show-bots').addEventListener('change', () => {
+  try { localStorage.setItem(BOTS_PREF, $('show-bots').checked ? '1' : '0'); } catch { /* ignore */ }
+  refresh();
+});
+const botsParam = () => ($('show-bots').checked ? '&bots=1' : '');
+
 async function refresh() {
   if (!current) return;
   const days = $('range').value;
   const [summary, visitors, activity] = await Promise.all([
-    api(`/sites/${current.id}/summary?days=${days}&tz=${-new Date().getTimezoneOffset()}`),
-    api(`/sites/${current.id}/visitors?days=${days}&q=${encodeURIComponent($('search').value)}`),
-    api(`/sites/${current.id}/activity?limit=30`),
+    api(`/sites/${current.id}/summary?days=${days}&tz=${-new Date().getTimezoneOffset()}${botsParam()}`),
+    api(`/sites/${current.id}/visitors?days=${days}&q=${encodeURIComponent($('search').value)}${botsParam()}`),
+    api(`/sites/${current.id}/activity?limit=30${botsParam()}`),
   ]);
   renderSummary(summary, Number(days));
   renderVisitors(visitors);
   renderActivity(activity);
-  $('waiting').hidden = activity.length > 0;
+  $('waiting').hidden = activity.length > 0 || summary.automated.pageviews > 0;
+}
+
+function renderBotsNote(s) {
+  const n = s.automated.visitors;
+  const note = $('bots-note');
+  note.hidden = !n;
+  if (!n) return;
+  const what = `${fmt(n)} likely automated visitor${n === 1 ? '' : 's'} (${fmt(s.automated.pageviews)} page view${s.automated.pageviews === 1 ? '' : 's'})`;
+  note.innerHTML = s.showing_automated
+    ? `Including ${what}, marked <span class="pill bot">Likely automated</span>. <a id="bots-toggle">Hide them</a>`
+    : `${what} hidden: email link scanners, uptime checkers and bots that never moved the mouse or tapped, all from cloud networks. <a id="bots-toggle">Show them</a>`;
+  $('bots-toggle').onclick = () => { $('show-bots').checked = !s.showing_automated; $('show-bots').dispatchEvent(new Event('change')); };
 }
 
 $('range').addEventListener('change', refresh);
@@ -229,6 +252,7 @@ function renderSummary(s, days) {
   $('k-visits').textContent = fmt(s.totals.visits);
   $('k-pageviews').textContent = fmt(s.totals.pageviews);
   $('k-identified').textContent = fmt(s.identified);
+  renderBotsNote(s);
 
   // Fill in days with no traffic so gaps show as gaps.
   const byDay = Object.fromEntries(s.daily.map((d) => [d.day, d]));
@@ -306,13 +330,23 @@ $('visitors').addEventListener('click', (e) => {
 async function openVisitor(id) {
   const { visitor: v, places, visits } = await api(`/visitors/${id}`);
   const plural = (n, word) => `${fmt(n)} ${word}${n === 1 ? '' : 's'}`;
-  const vpnNote = v.uses_vpn
+  const vpnNote = v.uses_vpn && !v.automated
     ? '<p class="note">This visitor used a VPN for at least one visit. Locations marked <em>VPN</em> are the VPN server\'s, not where the person is.</p>'
     : '';
+  const botNote = v.automated
+    ? `<p class="note"><span class="pill bot">Likely automated</span> Never moved the mouse, tapped or typed, gave no name,
+       and every visit came from a cloud network: the pattern of email link scanners (such as Microsoft's, which opens every
+       link in an email sent to Outlook users) and other bots. Hidden from your numbers unless "Show automated" is on.</p>`
+    : '';
+  const interaction = v.engaged
+    ? 'Yes: moved the mouse, tapped or typed'
+    : 'None recorded <span class="muted small">(sites on plugin 1.0.3 or later record this)</span>';
   $('drawer-body').innerHTML = `
     <h1>${esc(title(v))}</h1>
     <div class="muted">Visitor #${esc(v.visitor_key.slice(0, 8))} · same browser on every visit below</div>
+    ${botNote}
     <dl class="facts">
+      <dt>Interaction</dt><dd>${interaction}</dd>
       ${v.name ? `<dt>Name</dt><dd>${esc(v.name)}</dd>` : ''}
       ${v.email ? `<dt>Email</dt><dd>${esc(v.email)}</dd>` : ''}
       ${v.company ? `<dt>Company</dt><dd>${esc(v.company)}</dd>` : ''}
@@ -370,7 +404,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawe
 
 $('export').addEventListener('click', () => {
   const cols = ['name', 'email', 'company', 'company_network', 'org', 'network_type', 'city', 'region', 'country',
-                'place_count', 'ip_count', 'uses_vpn', 'visits', 'pageviews', 'device', 'browser', 'os', 'first_seen', 'last_seen'];
+                'place_count', 'ip_count', 'uses_vpn', 'engaged', 'automated', 'visits', 'pageviews', 'device', 'browser', 'os', 'first_seen', 'last_seen'];
   const cell = (v) => {
     let s = String(v ?? '');
     if (/^[=+\-@]/.test(s)) s = "'" + s; // keep spreadsheets from running it as a formula

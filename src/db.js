@@ -105,6 +105,10 @@ const LATER_COLUMNS = [
   ['sites', 'last_error', 'TEXT'],
   // The id the row had on the WordPress site, so re-syncing can't duplicate visits.
   ['pageviews', 'remote_id', 'INTEGER'],
+  // 1 once the visitor moved the mouse, tapped or typed (plugin 1.0.3+): a person, not a scanner.
+  ['visitors', 'engaged', 'INTEGER NOT NULL DEFAULT 0'],
+  // 1 = "likely automated"; see src/automated.js for the rule.
+  ['visitors', 'automated', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
 async function init() {
@@ -116,6 +120,7 @@ async function init() {
   }
   await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS pageviews_remote
                     ON pageviews (site_id, remote_id) WHERE remote_id IS NOT NULL`);
+  await db.execute('CREATE INDEX IF NOT EXISTS visitors_site_automated ON visitors (site_id, automated)');
 }
 
 /** Resolves once the tables exist. Await it before serving requests. */

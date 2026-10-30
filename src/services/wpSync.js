@@ -3,10 +3,14 @@
 import { all, run, batch, stmt } from '../db.js';
 import { lookupMany } from '../geo.js';
 import { parseUa } from '../ua.js';
+import { refreshAutomated } from '../automated.js';
 
+// "engaged" only ever goes 0 → 1 (plugins before 1.0.3 don't send it, which reads as 0).
 const UPSERT_VISITOR = `
-  INSERT INTO visitors (site_id, visitor_key, first_seen, last_seen) VALUES (?, ?, ?, ?)
-  ON CONFLICT(site_id, visitor_key) DO UPDATE SET last_seen = MAX(visitors.last_seen, excluded.last_seen)`;
+  INSERT INTO visitors (site_id, visitor_key, first_seen, last_seen, engaged) VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(site_id, visitor_key) DO UPDATE SET
+    last_seen = MAX(visitors.last_seen, excluded.last_seen),
+    engaged = MAX(visitors.engaged, excluded.engaged)`;
 // The visitor id is looked up inside the statement, so a whole page of visits can be
 // written in one batch without a round trip per visitor.
 const INSERT_PAGEVIEW = `
@@ -59,7 +63,7 @@ export async function syncSite(site) {
       for (const e of data.events) {
         const geo = (e.ip && places.get(e.ip)) || {};
         const { browser, os, device } = parseUa(e.user_agent || '');
-        writes.push(stmt(UPSERT_VISITOR, [site.id, e.visitor_key, utc(e.first_seen), utc(e.last_seen)]));
+        writes.push(stmt(UPSERT_VISITOR, [site.id, e.visitor_key, utc(e.first_seen), utc(e.last_seen), Number(e.engaged) ? 1 : 0]));
         writes.push(stmt(INSERT_PAGEVIEW, [site.id, site.id, e.visitor_key,
           e.session_key || 'none', e.url, e.path || '/', e.title, e.referrer, e.ip,
           geo.country ?? null, geo.country_code ?? null, geo.region ?? null, geo.city ?? null,
@@ -67,10 +71,14 @@ export async function syncSite(site) {
           browser, os, device, (e.user_agent || '').slice(0, 500), utc(e.created_at), Number(e.id)]));
       }
       for (const person of data.identities) {
-        writes.push(stmt(UPSERT_VISITOR, [site.id, person.visitor_key, utc(person.first_seen), utc(person.last_seen)]));
+        writes.push(stmt(UPSERT_VISITOR, [site.id, person.visitor_key, utc(person.first_seen), utc(person.last_seen),
+          Number(person.engaged) ? 1 : 0]));
         writes.push(stmt(APPLY_IDENTITY, [person.name || null, person.email || null, person.company || null,
           site.id, person.visitor_key]));
       }
+      // Re-judge "likely automated" for everyone this page touched.
+      writes.push(...refreshAutomated(site.id, [
+        ...data.events.map((e) => e.visitor_key), ...data.identities.map((p) => p.visitor_key)]));
 
       // The cursor moves in the same transaction as the rows, so a failure can't skip or
       // half-apply a page.

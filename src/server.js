@@ -8,6 +8,7 @@ import { lookupIp, relabelStoredVisits } from './geo.js';
 import { isBot, parseUa } from './ua.js';
 import { makeZip } from './zip.js';
 import { ping, syncSite, syncAll } from './services/wpSync.js';
+import { refreshAutomated, refreshAllAutomated } from './automated.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -86,12 +87,21 @@ app.post('/collect', express.text({ type: '*/*', limit: '8kb' }), async (req, re
     if (!visitorKey) return;
     const ts = now();
 
+    if (body.type === 'engage') {
+      await batch([
+        stmt('UPDATE visitors SET engaged = 1 WHERE site_id = ? AND visitor_key = ?', [site.id, visitorKey]),
+        ...refreshAutomated(site.id, [visitorKey]),
+      ]);
+      return;
+    }
+
     if (body.type === 'identify') {
       await batch([
         stmt(UPSERT_VISITOR, [site.id, visitorKey, ts, ts]),
         stmt(`UPDATE visitors SET name = COALESCE(?, name), email = COALESCE(?, email), company = COALESCE(?, company)
               WHERE site_id = ? AND visitor_key = ?`,
           [clip(body.name, 200) || null, clip(body.email, 200) || null, clip(body.company, 200) || null, site.id, visitorKey]),
+        ...refreshAutomated(site.id, [visitorKey]),
       ]);
       return;
     }
@@ -113,6 +123,7 @@ app.post('/collect', express.text({ type: '*/*', limit: '8kb' }), async (req, re
           clip(body.title, 300), clip(body.ref, 2000) || null, ip,
           geo.country, geo.country_code, geo.region, geo.city, geo.timezone, geo.org, geo.isp, geo.network_type,
           browser, os, device, ua.slice(0, 500), ts]),
+      ...refreshAutomated(site.id, [visitorKey]),
     ]);
   } catch (err) {
     console.error('collect failed:', err.message);
@@ -142,11 +153,15 @@ app.use('/api', express.json({ limit: '16kb' }));
 
 const sinceFor = (days) => new Date(Date.now() - Math.min(Math.max(Number(days) || 30, 1), 3650) * 864e5).toISOString();
 
+// Likely-automated visitors (src/automated.js) are left out unless ?bots=1.
+const showBots = (req) => req.query.bots === '1';
+const WITHOUT_BOTS = 'AND visitor_id NOT IN (SELECT id FROM visitors WHERE site_id = ? AND automated = 1)';
+
 app.get('/api/sites', h(async (req, res) => {
   res.json(await all(`
     SELECT s.id, s.url, s.host, s.name, s.created_at, s.wp_url, s.last_sync, s.last_error,
       (s.wp_key IS NOT NULL) AS connected,
-      (SELECT COUNT(*) FROM visitors v WHERE v.site_id = s.id) AS visitors,
+      (SELECT COUNT(*) FROM visitors v WHERE v.site_id = s.id AND v.automated = 0) AS visitors,
       (SELECT COUNT(*) FROM pageviews p WHERE p.site_id = s.id) AS pageviews,
       (SELECT MAX(created_at) FROM pageviews p WHERE p.site_id = s.id) AS last_hit
     FROM sites s ORDER BY s.created_at`));
@@ -178,40 +193,48 @@ app.delete('/api/sites/:id', h(async (req, res) => {
 app.get('/api/sites/:id/summary', h(async (req, res) => {
   const site = await findSite(req.params.id);
   if (!site) return res.status(404).json({ error: 'Site not found' });
-  const args = [site.id, sinceFor(req.query.days)];
+  const since = sinceFor(req.query.days);
+  // Every page-view query below shares this filter.
+  const where = `site_id = ? AND created_at >= ? ${showBots(req) ? '' : WITHOUT_BOTS}`;
+  const args = showBots(req) ? [site.id, since] : [site.id, since, site.id];
   const top = (col, limit = 8) => all(`
     SELECT ${col} AS label, COUNT(DISTINCT visitor_id) AS visitors, COUNT(*) AS pageviews
-    FROM pageviews WHERE site_id = ? AND created_at >= ? AND ${col} IS NOT NULL AND ${col} != ''
+    FROM pageviews WHERE ${where} AND ${col} IS NOT NULL AND ${col} != ''
     GROUP BY ${col} ORDER BY visitors DESC, pageviews DESC LIMIT ${limit}`, args);
 
   // In parallel: with a hosted database each query is a network round trip.
-  const [totals, identified, companies, countries, regions, pages, referrers, daily] = await Promise.all([
+  const [totals, identified, automated, companies, countries, regions, pages, referrers, daily] = await Promise.all([
     get(`SELECT COUNT(DISTINCT visitor_id) AS visitors, COUNT(DISTINCT session_key) AS visits, COUNT(*) AS pageviews
-         FROM pageviews WHERE site_id = ? AND created_at >= ?`, args),
+         FROM pageviews WHERE ${where}`, args),
     get(`SELECT COUNT(*) AS n FROM visitors
-         WHERE site_id = ? AND last_seen >= ? AND (name IS NOT NULL OR email IS NOT NULL OR company IS NOT NULL)`, args),
+         WHERE site_id = ? AND last_seen >= ? AND (name IS NOT NULL OR email IS NOT NULL OR company IS NOT NULL)`, [site.id, since]),
+    // How much is being hidden, so the dashboard can say so.
+    get(`SELECT COUNT(DISTINCT p.visitor_id) AS visitors, COUNT(*) AS pageviews
+         FROM pageviews p JOIN visitors v ON v.id = p.visitor_id
+         WHERE p.site_id = ? AND p.created_at >= ? AND v.automated = 1`, [site.id, since]),
     all(`SELECT org AS label, COUNT(DISTINCT visitor_id) AS visitors, COUNT(*) AS pageviews
-         FROM pageviews WHERE site_id = ? AND created_at >= ? AND network_type = 'company'
+         FROM pageviews WHERE ${where} AND network_type = 'company'
          GROUP BY org ORDER BY visitors DESC, pageviews DESC LIMIT 8`, args),
     top('country'),
     top(`region || ', ' || country`),
     top('path'),
     all(`SELECT referrer AS label, COUNT(DISTINCT visitor_id) AS visitors, COUNT(*) AS pageviews
-         FROM pageviews WHERE site_id = ? AND created_at >= ? AND referrer IS NOT NULL
+         FROM pageviews WHERE ${where} AND referrer IS NOT NULL
          GROUP BY referrer ORDER BY visitors DESC LIMIT 8`, args),
     // Bucket by the viewer's local day; tz = minutes east of UTC (IST = 330).
     all(`SELECT substr(datetime(created_at, ? || ' minutes'), 1, 10) AS day,
                 COUNT(DISTINCT visitor_id) AS visitors, COUNT(*) AS pageviews
-         FROM pageviews WHERE site_id = ? AND created_at >= ?
+         FROM pageviews WHERE ${where}
          GROUP BY day ORDER BY day`, [Math.trunc(Number(req.query.tz)) || 0, ...args]),
   ]);
-  res.json({ site: publicSite(site), totals, identified: identified.n, companies, countries, regions, pages, referrers, daily });
+  res.json({ site: publicSite(site), totals, identified: identified.n, automated, companies, countries, regions,
+    pages, referrers, daily, showing_automated: showBots(req) });
 }));
 
 // Each visitor with their latest known location / network, plus how many different
 // places they have come from (people switch VPN locations, or visit from home and office).
 const VISITOR_SELECT = `
-  SELECT v.id, v.visitor_key, v.name, v.email, v.company, v.first_seen, v.last_seen,
+  SELECT v.id, v.visitor_key, v.name, v.email, v.company, v.first_seen, v.last_seen, v.engaged, v.automated,
          (SELECT COUNT(DISTINCT session_key) FROM pageviews p WHERE p.visitor_id = v.id) AS visits,
          (SELECT COUNT(*) FROM pageviews p WHERE p.visitor_id = v.id) AS pageviews,
          (SELECT COUNT(DISTINCT ip) FROM pageviews p WHERE p.visitor_id = v.id) AS ip_count,
@@ -233,7 +256,7 @@ app.get('/api/sites/:id/visitors', h(async (req, res) => {
   // Search covers every place and network a visitor has used, not only the latest one,
   // so "Madrid" still finds someone whose last visit came from Amsterdam.
   res.json(await all(`${VISITOR_SELECT}
-    WHERE v.site_id = ? AND v.last_seen >= ?
+    WHERE v.site_id = ? AND v.last_seen >= ? ${showBots(req) ? '' : 'AND v.automated = 0'}
       AND (? = '%%' OR v.name LIKE ? OR v.email LIKE ? OR v.company LIKE ?
            OR EXISTS (SELECT 1 FROM pageviews s WHERE s.visitor_id = v.id
                       AND (s.org LIKE ? OR s.country LIKE ? OR s.region LIKE ? OR s.city LIKE ? OR s.ip LIKE ?)))
@@ -290,9 +313,15 @@ app.get('/api/sites/:id/wordpress-plugin.zip', h(async (req, res) => {
   const key = site.wp_key || randomBytes(30).toString('base64url').slice(0, 40);
   await run('UPDATE sites SET wp_key = ?, wp_url = COALESCE(wp_url, ?) WHERE id = ?', [key, site.url, site.id]);
 
+  // Optional ?apollo=<24 hex> turns on Apollo.io's visitor tracker in this site's plugin.
+  const apollo = /^[a-f0-9]{24}$/i.test(String(req.query.apollo || '')) ? String(req.query.apollo).toLowerCase() : '';
+
   const files = PLUGIN_FILES.map((name) => {
     let text = readFileSync(join(PLUGIN_DIR, name), 'utf8');
-    if (name.endsWith('site-visit-tracker.php')) text = text.replace("'__SVT_API_KEY__'", `'${key}'`);
+    if (name.endsWith('site-visit-tracker.php')) {
+      text = text.replace("'__SVT_API_KEY__'", `'${key}'`);
+      if (apollo) text = text.replace("'__SVT_APOLLO_ID__'", `'${apollo}'`);
+    }
     return { name: `site-visit-tracker/${name}`, data: text };
   });
   files.push({ name: 'site-visit-tracker/assets/t.js', data: readFileSync(join(PUBLIC_DIR, 't.js'), 'utf8') });
@@ -339,7 +368,7 @@ app.get('/api/sites/:id/activity', h(async (req, res) => {
     SELECT p.id, p.visitor_id, p.path, p.title, p.referrer, p.country, p.region, p.city, p.org,
            p.network_type, p.device, p.created_at, v.name, v.company, v.email
     FROM pageviews p JOIN visitors v ON v.id = p.visitor_id
-    WHERE p.site_id = ? ORDER BY p.created_at DESC LIMIT ?`,
+    WHERE p.site_id = ? ${showBots(req) ? '' : 'AND v.automated = 0'} ORDER BY p.created_at DESC LIMIT ?`,
     [req.params.id, Math.min(Number(req.query.limit) || 50, 500)]));
 }));
 
@@ -354,6 +383,8 @@ app.use((err, req, res, next) => {
 // Start listening straight away (a sleeping free host must answer quickly when woken),
 // then catch up on every connected WordPress site in the background.
 await ready;
+// Judge every existing visitor once, so data from before this rule existed is covered too.
+await batch([refreshAllAutomated()]);
 app.listen(PORT, () => {
   console.log(`Site Visit Tracker running at http://localhost:${PORT} (${isRemote ? 'Turso database' : 'local database file'})`);
   if (!process.env.DASHBOARD_PASSWORD) console.log('  (dashboard has no password — set DASHBOARD_PASSWORD before deploying)');

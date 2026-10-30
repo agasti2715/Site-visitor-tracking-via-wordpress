@@ -2,6 +2,7 @@
 // Uses ip-api.com; every answer is cached in SQLite for 30 days so a returning
 // visitor never costs a second lookup.
 import { all, get, run, batch, stmt } from './db.js';
+import { refreshAllAutomated } from './automated.js';
 
 const CACHE_DAYS = 30;
 const FIELDS = 'status,message,country,countryCode,regionName,city,timezone,isp,org,as,mobile,proxy,hosting,query';
@@ -159,6 +160,8 @@ export async function relabelStoredVisits(maxFetches = 30) {
                        WHERE ip = ? AND network_type IS ? AND org IS ?`,
       [geo.network_type, geo.org, geo.isp, s.ip, s.network_type, s.org]));
   }
+  // A network relabelled as cloud/VPN (or back) can change who counts as likely automated.
+  if (updates.length) updates.push(refreshAllAutomated());
   await batch(updates);
   return updates.length;
 }
