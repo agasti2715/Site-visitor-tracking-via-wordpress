@@ -13,17 +13,30 @@ add_action( 'rest_api_init', function () {
 		'callback'            => 'svt_rest_collect',
 		'permission_callback' => '__return_true',
 	) );
+	// POST as well as GET: some hosts' caches (GoDaddy's gateway cache) store GET answers by URL
+	// alone, ignoring the key header. Caches never store POST, so the dashboard uses it.
 	register_rest_route( 'svt/v1', '/export', array(
-		'methods'             => 'GET',
+		'methods'             => array( 'GET', 'POST' ),
 		'callback'            => 'svt_rest_export',
 		'permission_callback' => 'svt_rest_key_ok',
 	) );
 	register_rest_route( 'svt/v1', '/ping', array(
-		'methods'             => 'GET',
+		'methods'             => array( 'GET', 'POST' ),
 		'callback'            => 'svt_rest_ping',
 		'permission_callback' => 'svt_rest_key_ok',
 	) );
 } );
+
+// Nothing this plugin answers may be stored by a cache: it is either private (export, ping)
+// or a write (collect).
+add_filter( 'rest_post_dispatch', function ( $result, $server, $request ) {
+	if ( $result instanceof WP_HTTP_Response && 0 === strpos( $request->get_route(), '/svt/v1/' ) ) {
+		$result->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private' );
+		$result->header( 'Pragma', 'no-cache' );
+		$result->header( 'Expires', '0' );
+	}
+	return $result;
+}, 10, 3 );
 
 function svt_rest_key_ok( WP_REST_Request $request ) {
 	$sent  = (string) $request->get_header( 'x-svt-key' );

@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Site Visit Tracker
  * Description:       Records who visits this site — their company, region and visit history — in this site's own database. No external requests, no page-speed cost.
- * Version:           1.0.4
+ * Version:           1.0.5
  * Requires at least: 5.6
  * Requires PHP:      7.2
  * License:           GPL-2.0-or-later
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SVT_VERSION', '1.0.4' );
+define( 'SVT_VERSION', '1.0.5' );
 define( 'SVT_FILE', __FILE__ );
 define( 'SVT_OPTION', 'svt_settings' );
 // The dashboard fills this in when you download the plugin, so connecting needs no typing.

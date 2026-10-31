@@ -4,6 +4,7 @@ import { all, run, batch, stmt } from '../db.js';
 import { lookupMany } from '../geo.js';
 import { parseUa } from '../ua.js';
 import { refreshAutomated } from '../automated.js';
+import { randomBytes } from 'node:crypto';
 
 // "engaged" only ever goes 0 → 1 (plugins before 1.0.3 don't send it, which reads as 0).
 const UPSERT_VISITOR = `
@@ -28,13 +29,20 @@ const SAVE_ERROR = 'UPDATE sites SET last_error = ?, last_sync = ? WHERE id = ?'
 
 const utc = (mysqlTime) => (mysqlTime ? mysqlTime.replace(' ', 'T') + 'Z' : new Date().toISOString());
 
+// Some hosts (GoDaddy's "gateway cache", found on barcodeconsultants.com) cache GET responses by
+// URL alone and ignore the key header: they then served stale data to the sync and could hand a
+// keyed answer to anyone who requested the identical URL. So every request gets a never-repeated
+// URL, and goes as POST, which caches don't store. Plugins before 1.0.5 only answer GET.
 async function callSite(site, path, params = {}) {
   const url = new URL(`${site.wp_url.replace(/\/+$/, '')}/wp-json/svt/v1/${path}`);
   for (const [k, v] of Object.entries(params)) if (v != null) url.searchParams.set(k, v);
-  const res = await fetch(url, {
-    headers: { 'X-SVT-Key': site.wp_key, Accept: 'application/json' },
+  url.searchParams.set('_', randomBytes(12).toString('hex'));
+  const options = {
+    headers: { 'X-SVT-Key': site.wp_key, Accept: 'application/json', 'Cache-Control': 'no-cache' },
     signal: AbortSignal.timeout(20000),
-  });
+  };
+  let res = await fetch(url, { ...options, method: 'POST' });
+  if (res.status === 404 || res.status === 405) res = await fetch(url, options); // older plugin: GET only
   if (res.status === 403) throw new Error('The site rejected the key. Check the key in WordPress → Settings → Site Visit Tracker.');
   if (res.status === 404) throw new Error('The plugin did not answer. Is it installed and active on this site?');
   if (!res.ok) throw new Error(`The site answered ${res.status}.`);
