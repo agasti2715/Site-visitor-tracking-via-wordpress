@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Site Visit Tracker
  * Description:       Records who visits this site — their company, region and visit history — in this site's own database. No external requests, no page-speed cost.
- * Version:           1.0.6
+ * Version:           1.0.7
  * Requires at least: 5.6
  * Requires PHP:      7.2
  * License:           GPL-2.0-or-later
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SVT_VERSION', '1.0.6' );
+define( 'SVT_VERSION', '1.0.7' );
 define( 'SVT_FILE', __FILE__ );
 define( 'SVT_OPTION', 'svt_settings' );
 // The dashboard fills this in when you download the plugin, so connecting needs no typing.
@@ -71,7 +71,24 @@ add_action( 'plugins_loaded', function () {
 	if ( get_option( 'svt_db_version' ) !== SVT_VERSION ) {
 		svt_install_tables();
 	}
+	svt_apply_baked_apollo();
 } );
+
+// A zip downloaded with Apollo switched on must switch it on even when installed over an older
+// version, whose saved settings already hold an empty Apollo ID (saved settings otherwise win
+// over the built-in default). Applied once per built-in ID, so turning Apollo off in Settings
+// afterwards is respected until a zip with a different ID is installed.
+function svt_apply_baked_apollo() {
+	$baked = svt_valid_apollo_id( SVT_BAKED_APOLLO );
+	if ( ! $baked || get_option( 'svt_applied_baked_apollo' ) === $baked ) {
+		return;
+	}
+	$saved = get_option( SVT_OPTION, array() );
+	$saved = is_array( $saved ) ? $saved : array();
+	$saved['apollo_app_id'] = $baked;
+	update_option( SVT_OPTION, $saved );
+	update_option( 'svt_applied_baked_apollo', $baked );
+}
 
 // Tell consent managers (Complianz, CookieYes…) that this plugin is consent-aware.
 add_filter( 'wp_consent_api_registered_' . plugin_basename( __FILE__ ), '__return_true' );
