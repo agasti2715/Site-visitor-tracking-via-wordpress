@@ -143,6 +143,11 @@ function svt_rest_collect( WP_REST_Request $request ) {
 		'referrer'    => $referrer && 0 === strpos( $referrer, 'http' ) ? $referrer : null,
 		'ip'          => svt_visitor_ip(),
 		'user_agent'  => mb_substr( $ua, 0, 255 ),
+		// The device's clock zone and language (unaffected by VPNs), and the browser's own
+		// "I am being automated" flag.
+		'device_tz'   => isset( $body['tz'] ) && preg_match( '#^[A-Za-z0-9_+\-/]{1,64}$#', (string) $body['tz'] ) ? $body['tz'] : null,
+		'lang'        => isset( $body['lang'] ) && preg_match( '/^[A-Za-z0-9\-]{1,16}$/', (string) $body['lang'] ) ? $body['lang'] : null,
+		'webdriver'   => empty( $body['wd'] ) ? 0 : 1,
 		'created_at'  => $now,
 	) );
 
@@ -164,7 +169,8 @@ function svt_rest_export( WP_REST_Request $request ) {
 	$limit      = min( 1000, max( 1, (int) $request->get_param( 'limit' ) ?: 500 ) );
 
 	$rows = $wpdb->get_results( $wpdb->prepare(
-		"SELECT e.id, e.visitor_id, e.session_key, e.url, e.path, e.title, e.referrer, e.ip, e.user_agent, e.created_at,
+		"SELECT e.id, e.visitor_id, e.session_key, e.url, e.path, e.title, e.referrer, e.ip, e.user_agent,
+		        e.device_tz, e.lang, e.webdriver, e.created_at,
 		        v.visitor_key, v.name, v.email, v.company, v.engaged, v.first_seen, v.last_seen
 		 FROM $events e JOIN $visitors v ON v.id = e.visitor_id
 		 WHERE e.id > %d ORDER BY e.id ASC LIMIT %d",

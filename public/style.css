@@ -129,6 +129,7 @@ tbody tr:hover { background: var(--bg); }
 .pill.isp, .pill.mobile, .pill.hosting, .pill.local { background: var(--pill-isp); color: var(--pill-isp-t); }
 .pill.person { background: var(--pill-person); color: var(--pill-person-t); }
 .flag { margin-right: 4px; }
+.clock-bad { color: var(--danger); cursor: help; }
 .approx { font-size: 11px; color: var(--muted); border-bottom: 1px dotted var(--muted); margin-left: 6px; cursor: help; white-space: nowrap; }
 .approx.bad { color: var(--danger); border-color: var(--danger); }
 

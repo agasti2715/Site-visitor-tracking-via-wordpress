@@ -84,6 +84,44 @@ function who(v) {
   const sub = v.company || v.company_network ? 'Anonymous visitor' : `#${v.visitor_key.slice(0, 8)}`;
   return `<div class="who"><strong>${esc(title(v))}${vpn}</strong><span class="sub">${esc(sub)}</span></div>`;
 }
+// The device's clock zone vs the time zone of the place the IP address points to. A VPN or
+// proxy moves the IP, not the clock, so a different offset means the visitor is probably in
+// the clock's region. (Offsets are compared, so Chicago and Mexico City count as the same.)
+function tzOffset(tz) {
+  try {
+    const s = new Date().toLocaleString('en-US', { timeZone: tz, timeZoneName: 'shortOffset' });
+    const m = s.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
+    if (!m) return /GMT$/.test(s) ? 0 : null;
+    return (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] || 0));
+  } catch { return null; }
+}
+function utcLabel(tz) {
+  const o = tzOffset(tz);
+  if (o === null) return '';
+  const h = Math.floor(Math.abs(o) / 60), m = Math.abs(o) % 60;
+  return `UTC${o < 0 ? '−' : '+'}${h}${m ? ':' + String(m).padStart(2, '0') : ''}`;
+}
+const tzCity = (tz) => String(tz).split('/').pop().replace(/_/g, ' ');
+function clockMismatch(r) {
+  if (!r.device_tz || !r.timezone) return false;
+  const a = tzOffset(r.device_tz), b = tzOffset(r.timezone);
+  return a !== null && b !== null && a !== b;
+}
+// Under a location: says when the device clock contradicts it.
+function clockHint(r) {
+  if (!clockMismatch(r)) return '';
+  return `<div class="sub clock-bad" title="The IP address points to ${esc(r.timezone)}, but the device clock is set to ${esc(r.device_tz)}. A VPN, proxy or travel changes the IP, not the clock, so the visitor is probably in the clock's region.">
+    Device clock: ${esc(tzCity(r.device_tz))} (${utcLabel(r.device_tz)}), likely the real region</div>`;
+}
+function clockFact(v) {
+  if (!v.device_tz) return '<span class="muted">Not recorded <span class="small">(sites on plugin 1.0.6 or later record this)</span></span>';
+  const lang = v.lang ? ` · language ${esc(v.lang)}` : '';
+  const verdict = !v.timezone ? ''
+    : clockMismatch(v) ? ` <span class="approx bad">doesn't match the IP location</span>`
+    : ` <span class="approx">matches the IP location</span>`;
+  return `${esc(v.device_tz)} (${utcLabel(v.device_tz)})${lang}${verdict}`;
+}
+
 // "Also from 2 other places" under the latest location.
 function otherPlaces(v) {
   const extra = Math.max(v.place_count, v.ip_count) - 1;
@@ -299,7 +337,7 @@ function renderVisitors(rows) {
     <tr data-id="${v.id}">
       <td>${who(v)}</td>
       <td>${network(v)}</td>
-      <td>${place(v)}${otherPlaces(v)}</td>
+      <td>${place(v)}${clockHint(v)}${otherPlaces(v)}</td>
       <td class="num">${fmt(v.visits)}</td>
       <td class="num">${fmt(v.pageviews)}</td>
       <td><span class="sub">${esc([v.device, v.browser, v.os].filter(Boolean).join(' · '))}</span></td>
@@ -347,6 +385,7 @@ async function openVisitor(id) {
     ${botNote}
     <dl class="facts">
       <dt>Interaction</dt><dd>${interaction}</dd>
+      <dt>Device clock</dt><dd>${clockFact(v)}</dd>
       ${v.name ? `<dt>Name</dt><dd>${esc(v.name)}</dd>` : ''}
       ${v.email ? `<dt>Email</dt><dd>${esc(v.email)}</dd>` : ''}
       ${v.company ? `<dt>Company</dt><dd>${esc(v.company)}</dd>` : ''}
@@ -362,7 +401,7 @@ async function openVisitor(id) {
       ${places.map((p, i) => `
         <div class="place-row${p.network_type === 'hosting' ? ' vpn' : ''}">
           <div class="place-main">
-            <div>${place(p)}${i === 0 ? ' <span class="pill isp">Latest</span>' : ''}</div>
+            <div>${place(p)}${i === 0 ? ' <span class="pill isp">Latest</span>' : ''}</div>${clockHint(p)}
             <div class="sub">${network(p)}</div>
           </div>
           <div class="place-meta sub">
@@ -381,7 +420,7 @@ async function openVisitor(id) {
           <strong>${esc(when(s.started))}</strong>
           <span class="sub">${plural(s.pages.length, 'page')}</span>
         </div>
-        <div class="sub">${place(s)} · ${esc(s.org || '')} · <code>${esc(s.ip || '–')}</code>${s.referrer ? ` · from ${esc(shortRef(s.referrer))}` : ''}</div>
+        <div class="sub">${place(s)} · ${esc(s.org || '')} · <code>${esc(s.ip || '–')}</code>${s.referrer ? ` · from ${esc(shortRef(s.referrer))}` : ''}</div>${clockHint(s)}
         <ol>${s.pages.map((p) => `<li><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || p.path)}</a>
           <span class="t">${esc(new Date(p.at).toLocaleTimeString())}</span>
           ${p.ip && p.ip !== s.ip ? `<span class="t">· switched to <code>${esc(p.ip)}</code></span>` : ''}</li>`).join('')}</ol>
@@ -404,7 +443,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawe
 
 $('export').addEventListener('click', () => {
   const cols = ['name', 'email', 'company', 'company_network', 'org', 'network_type', 'city', 'region', 'country',
-                'place_count', 'ip_count', 'uses_vpn', 'engaged', 'automated', 'visits', 'pageviews', 'device', 'browser', 'os', 'first_seen', 'last_seen'];
+                'place_count', 'ip_count', 'uses_vpn', 'engaged', 'automated', 'timezone', 'device_tz', 'lang', 'visits', 'pageviews', 'device', 'browser', 'os', 'first_seen', 'last_seen'];
   const cell = (v) => {
     let s = String(v ?? '');
     if (/^[=+\-@]/.test(s)) s = "'" + s; // keep spreadsheets from running it as a formula

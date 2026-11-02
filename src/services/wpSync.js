@@ -17,9 +17,9 @@ const UPSERT_VISITOR = `
 const INSERT_PAGEVIEW = `
   INSERT INTO pageviews (site_id, visitor_id, session_key, url, path, title, referrer, ip,
     country, country_code, region, city, timezone, org, isp, network_type,
-    browser, os, device, user_agent, created_at, remote_id)
+    browser, os, device, user_agent, created_at, remote_id, device_tz, lang, webdriver)
   VALUES (?, (SELECT id FROM visitors WHERE site_id = ? AND visitor_key = ?),
-    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT (site_id, remote_id) WHERE remote_id IS NOT NULL DO NOTHING`;
 const APPLY_IDENTITY = `
   UPDATE visitors SET name = COALESCE(?, name), email = COALESCE(?, email), company = COALESCE(?, company)
@@ -76,7 +76,8 @@ export async function syncSite(site) {
           e.session_key || 'none', e.url, e.path || '/', e.title, e.referrer, e.ip,
           geo.country ?? null, geo.country_code ?? null, geo.region ?? null, geo.city ?? null,
           geo.timezone ?? null, geo.org ?? null, geo.isp ?? null, geo.network_type ?? null,
-          browser, os, device, (e.user_agent || '').slice(0, 500), utc(e.created_at), Number(e.id)]));
+          browser, os, device, (e.user_agent || '').slice(0, 500), utc(e.created_at), Number(e.id),
+          e.device_tz || null, e.lang || null, Number(e.webdriver) ? 1 : 0]));
       }
       for (const person of data.identities) {
         writes.push(stmt(UPSERT_VISITOR, [site.id, person.visitor_key, utc(person.first_seen), utc(person.last_seen),

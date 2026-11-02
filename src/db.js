@@ -109,6 +109,11 @@ const LATER_COLUMNS = [
   ['visitors', 'engaged', 'INTEGER NOT NULL DEFAULT 0'],
   // 1 = "likely automated"; see src/automated.js for the rule.
   ['visitors', 'automated', 'INTEGER NOT NULL DEFAULT 0'],
+  // Plugin 1.0.6+: the device's clock zone and language (a VPN changes neither), and the
+  // browser's own flag for being driven by automation software.
+  ['pageviews', 'device_tz', 'TEXT'],
+  ['pageviews', 'lang', 'TEXT'],
+  ['pageviews', 'webdriver', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
 async function init() {

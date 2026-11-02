@@ -88,6 +88,10 @@
     try { fetch(endpoint, { method: 'POST', body: body, keepalive: true, mode: 'no-cors' }); } catch (e) {}
   }
 
+  function deviceTimeZone() {
+    try { return (Intl.DateTimeFormat().resolvedOptions().timeZone || '').slice(0, 64); } catch (e) { return ''; }
+  }
+
   var lastUrl = null;
   function pageview() {
     var url = location.href;
@@ -96,7 +100,12 @@
     lastUrl = url;
     // Only keep referrers from other sites.
     try { if (ref && new URL(ref).hostname === location.hostname) ref = ''; } catch (e) { ref = ''; }
-    send({ type: 'pageview', url: url, title: document.title, ref: ref });
+    send({ type: 'pageview', url: url, title: document.title, ref: ref,
+      // The device's own clock zone and language: a VPN changes the IP address, not these,
+      // so they show the visitor's real region when the IP location is wrong.
+      tz: deviceTimeZone(), lang: (navigator.language || '').slice(0, 16),
+      // Set by browsers that are being driven by automation software (bots, scrapers).
+      wd: navigator.webdriver === true ? 1 : 0 });
   }
 
   function identify(info) {

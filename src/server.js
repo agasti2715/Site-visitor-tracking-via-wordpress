@@ -116,13 +116,16 @@ app.post('/collect', express.text({ type: '*/*', limit: '8kb' }), async (req, re
       stmt(UPSERT_VISITOR, [site.id, visitorKey, ts, ts]),
       stmt(`INSERT INTO pageviews (site_id, visitor_id, session_key, url, path, title, referrer, ip,
               country, country_code, region, city, timezone, org, isp, network_type,
-              browser, os, device, user_agent, created_at)
+              browser, os, device, user_agent, created_at, device_tz, lang, webdriver)
             VALUES (?, (SELECT id FROM visitors WHERE site_id = ? AND visitor_key = ?),
-              ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [site.id, site.id, visitorKey, clip(body.sid, 64) || 'none', pageUrl, path,
           clip(body.title, 300), clip(body.ref, 2000) || null, ip,
           geo.country, geo.country_code, geo.region, geo.city, geo.timezone, geo.org, geo.isp, geo.network_type,
-          browser, os, device, ua.slice(0, 500), ts]),
+          browser, os, device, ua.slice(0, 500), ts,
+          /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.tz || '') ? body.tz : null,
+          /^[A-Za-z0-9-]{1,16}$/.test(body.lang || '') ? body.lang : null,
+          body.wd ? 1 : 0]),
       ...refreshAutomated(site.id, [visitorKey]),
     ]);
   } catch (err) {
@@ -244,7 +247,7 @@ const VISITOR_SELECT = `
          (SELECT org FROM pageviews p WHERE p.visitor_id = v.id AND p.network_type = 'company'
            ORDER BY created_at DESC LIMIT 1) AS company_network,
          l.country, l.country_code, l.region, l.city, l.org, l.isp, l.network_type,
-         l.browser, l.os, l.device, l.path AS last_path, l.ip
+         l.browser, l.os, l.device, l.path AS last_path, l.ip, l.timezone, l.device_tz, l.lang
   FROM visitors v
   LEFT JOIN pageviews l ON l.id = (SELECT id FROM pageviews WHERE visitor_id = v.id ORDER BY created_at DESC LIMIT 1)`;
 
@@ -269,10 +272,12 @@ app.get('/api/visitors/:id', h(async (req, res) => {
   const [visitor, hits, places] = await Promise.all([
     get(`${VISITOR_SELECT} WHERE v.id = ?`, [id]),
     all(`SELECT session_key, url, path, title, referrer, ip, country, country_code, region, city, org, network_type,
+                timezone, device_tz, lang,
                 browser, os, device, created_at
          FROM pageviews WHERE visitor_id = ? ORDER BY created_at DESC LIMIT 1000`, [id]),
     // Every IP address this visitor has come from, newest first.
     all(`SELECT ip, country, country_code, region, city, org, network_type,
+                MAX(timezone) AS timezone, MAX(device_tz) AS device_tz,
                 COUNT(DISTINCT session_key) AS visits, COUNT(*) AS pageviews,
                 MIN(created_at) AS first_seen, MAX(created_at) AS last_seen
          FROM pageviews WHERE visitor_id = ?
@@ -285,7 +290,8 @@ app.get('/api/visitors/:id', h(async (req, res) => {
   for (const hit of hits) {
     if (!sessions.has(hit.session_key)) {
       sessions.set(hit.session_key, { started: hit.created_at, ended: hit.created_at, pages: [],
-        referrer: null, ip: hit.ip, country: hit.country, country_code: hit.country_code, region: hit.region,
+        referrer: null, ip: hit.ip, timezone: hit.timezone, device_tz: hit.device_tz,
+        country: hit.country, country_code: hit.country_code, region: hit.region,
         city: hit.city, org: hit.org, network_type: hit.network_type, browser: hit.browser, os: hit.os, device: hit.device });
     }
     const s = sessions.get(hit.session_key);

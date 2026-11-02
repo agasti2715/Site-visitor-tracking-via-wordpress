@@ -1,14 +1,18 @@
 // "Likely automated": email link scanners (Microsoft Safe Links opens every emailed link
-// from Azure), uptime checkers, SEO crawlers that run a real browser. The rule:
+// from Azure), uptime checkers, SEO crawlers and ad-click bots that run a real browser.
+// Never for someone who gave a name, email or company. Otherwise, either:
+//   the browser reported it was driven by automation software (navigator.webdriver), or
 //   never interacted with the page (no mouse, wheel, tap or key)
-//   AND never gave a name, email or company
 //   AND every visit came from a cloud / VPN network.
 // A person on a VPN who moves the mouse stays visible. The flag is stored on the visitor so
 // the dashboard can filter cheaply, and recomputed whenever any of its inputs change.
 import { stmt } from './db.js';
 
 const RULE = `
-  CASE WHEN visitors.engaged = 0
+  CASE WHEN visitors.name IS NOT NULL OR visitors.email IS NOT NULL OR visitors.company IS NOT NULL THEN 0
+       -- The browser itself said it was driven by automation software (plugin 1.0.6+).
+       WHEN EXISTS (SELECT 1 FROM pageviews p WHERE p.visitor_id = visitors.id AND p.webdriver = 1) THEN 1
+       WHEN visitors.engaged = 0
         AND visitors.name IS NULL AND visitors.email IS NULL AND visitors.company IS NULL
         AND EXISTS (SELECT 1 FROM pageviews p WHERE p.visitor_id = visitors.id)
         AND NOT EXISTS (SELECT 1 FROM pageviews p WHERE p.visitor_id = visitors.id
