@@ -97,6 +97,7 @@
           <div class="kpi"><span>Visitors</span><strong id="k-visitors">–</strong></div>
           <div class="kpi"><span>Visits</span><strong id="k-visits">–</strong></div>
           <div class="kpi"><span>Page views</span><strong id="k-pageviews">–</strong></div>
+          <div class="kpi" title="Visitors who moved the mouse, tapped or typed: real people, not bots or scanners"><span>Verified people</span><strong id="k-verified">–</strong></div>
           <div class="kpi"><span>Identified people</span><strong id="k-identified">–</strong></div>
         </div>
         <p id="bots-note" class="bots-note" hidden></p>
@@ -120,6 +121,9 @@
           <div class="table-head">
             <h3>Visitors</h3>
             <div class="table-tools">
+              <label class="switch" title="Only visitors who moved the mouse, tapped or typed">
+                <input id="only-verified" type="checkbox"> Only verified
+              </label>
               <input id="search" type="search" placeholder="Search name, company, city…">
               <button id="export" class="ghost" type="button">Export CSV</button>
             </div>

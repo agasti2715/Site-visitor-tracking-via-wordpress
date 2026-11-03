@@ -206,11 +206,13 @@ app.get('/api/sites/:id/summary', h(async (req, res) => {
     GROUP BY ${col} ORDER BY visitors DESC, pageviews DESC LIMIT ${limit}`, args);
 
   // In parallel: with a hosted database each query is a network round trip.
-  const [totals, identified, automated, companies, countries, regions, pages, referrers, daily] = await Promise.all([
+  const [totals, identified, verified, automated, companies, countries, regions, pages, referrers, daily] = await Promise.all([
     get(`SELECT COUNT(DISTINCT visitor_id) AS visitors, COUNT(DISTINCT session_key) AS visits, COUNT(*) AS pageviews
          FROM pageviews WHERE ${where}`, args),
     get(`SELECT COUNT(*) AS n FROM visitors
          WHERE site_id = ? AND last_seen >= ? AND (name IS NOT NULL OR email IS NOT NULL OR company IS NOT NULL)`, [site.id, since]),
+    // Verified as a real person: moved the mouse, tapped or typed (plugin 1.0.3+).
+    get(`SELECT COUNT(*) AS n FROM visitors WHERE site_id = ? AND last_seen >= ? AND engaged = 1 AND automated = 0`, [site.id, since]),
     // How much is being hidden, so the dashboard can say so.
     get(`SELECT COUNT(DISTINCT p.visitor_id) AS visitors, COUNT(*) AS pageviews
          FROM pageviews p JOIN visitors v ON v.id = p.visitor_id
@@ -230,7 +232,7 @@ app.get('/api/sites/:id/summary', h(async (req, res) => {
          FROM pageviews WHERE ${where}
          GROUP BY day ORDER BY day`, [Math.trunc(Number(req.query.tz)) || 0, ...args]),
   ]);
-  res.json({ site: publicSite(site), totals, identified: identified.n, automated, companies, countries, regions,
+  res.json({ site: publicSite(site), totals, identified: identified.n, verified: verified.n, automated, companies, countries, regions,
     pages, referrers, daily, showing_automated: showBots(req) });
 }));
 
@@ -260,6 +262,7 @@ app.get('/api/sites/:id/visitors', h(async (req, res) => {
   // so "Madrid" still finds someone whose last visit came from Amsterdam.
   res.json(await all(`${VISITOR_SELECT}
     WHERE v.site_id = ? AND v.last_seen >= ? ${showBots(req) ? '' : 'AND v.automated = 0'}
+      ${req.query.verified === '1' ? 'AND v.engaged = 1' : ''}
       AND (? = '%%' OR v.name LIKE ? OR v.email LIKE ? OR v.company LIKE ?
            OR EXISTS (SELECT 1 FROM pageviews s WHERE s.visitor_id = v.id
                       AND (s.org LIKE ? OR s.country LIKE ? OR s.region LIKE ? OR s.city LIKE ? OR s.ip LIKE ?)))
@@ -372,7 +375,7 @@ app.post('/api/sites/:id/sync', h(async (req, res) => {
 app.get('/api/sites/:id/activity', h(async (req, res) => {
   res.json(await all(`
     SELECT p.id, p.visitor_id, p.path, p.title, p.referrer, p.country, p.region, p.city, p.org,
-           p.network_type, p.device, p.created_at, v.name, v.company, v.email
+           p.network_type, p.device, p.created_at, v.name, v.company, v.email, v.engaged, v.automated
     FROM pageviews p JOIN visitors v ON v.id = p.visitor_id
     WHERE p.site_id = ? ${showBots(req) ? '' : 'AND v.automated = 0'} ORDER BY p.created_at DESC LIMIT ?`,
     [req.params.id, Math.min(Number(req.query.limit) || 50, 500)]));

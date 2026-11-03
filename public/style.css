@@ -83,7 +83,9 @@ main { padding: 24px; min-width: 0; }
 .bots-note { margin: -6px 0 16px; font-size: 12.5px; color: var(--muted); }
 .bots-note a { cursor: pointer; }
 .pill.bot { background: var(--pill-isp); color: var(--danger); }
-.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+.pill.real { background: var(--pill-person); color: var(--pill-person-t); }
+.activity .real-mark { color: var(--pill-person-t); font-weight: 700; margin-right: 4px; }
 .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
 .kpi span { color: var(--muted); font-size: 12.5px; display: block; }
 .kpi strong { font-size: 26px; font-variant-numeric: tabular-nums; }
@@ -163,6 +165,7 @@ tbody tr:hover { background: var(--bg); }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
   main { padding: 16px; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
+  .table-tools { flex-wrap: wrap; }
   .grid { grid-template-columns: 1fr; }
   .code-row { flex-direction: column; }
 }

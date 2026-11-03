@@ -73,10 +73,12 @@ function title(v) {
   if (v.company_network) return `Someone at ${v.company_network}`;
   return 'Anonymous visitor';
 }
+const REAL_TITLE = 'Verified real person: moved the mouse, tapped or typed on the page';
 function who(v) {
-  const vpn = v.automated
+  const real = v.engaged && !v.automated ? `<span class="pill real" title="${REAL_TITLE}">✓ Real person</span>` : '';
+  const vpn = real + (v.automated
     ? '<span class="pill bot">Likely automated</span>'
-    : v.uses_vpn ? '<span class="pill hosting">Uses VPN</span>' : '';
+    : v.uses_vpn ? '<span class="pill hosting">Uses VPN</span>' : '');
   if (v.name || v.email) {
     return `<div class="who"><strong>${esc(title(v))}<span class="pill person">Identified</span>${vpn}</strong>
       <span class="sub">${esc([v.name && v.email, v.company].filter(Boolean).join(' · '))}</span></div>`;
@@ -260,7 +262,7 @@ async function refresh() {
   const days = $('range').value;
   const [summary, visitors, activity] = await Promise.all([
     api(`/sites/${current.id}/summary?days=${days}&tz=${-new Date().getTimezoneOffset()}${botsParam()}`),
-    api(`/sites/${current.id}/visitors?days=${days}&q=${encodeURIComponent($('search').value)}${botsParam()}`),
+    api(`/sites/${current.id}/visitors?days=${days}&q=${encodeURIComponent($('search').value)}${botsParam()}${$('only-verified').checked ? '&verified=1' : ''}`),
     api(`/sites/${current.id}/activity?limit=30${botsParam()}`),
   ]);
   renderSummary(summary, Number(days));
@@ -282,6 +284,7 @@ function renderBotsNote(s) {
 }
 
 $('range').addEventListener('change', refresh);
+$('only-verified').addEventListener('change', refresh);
 let searchTimer;
 $('search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(refresh, 250); });
 
@@ -290,6 +293,7 @@ function renderSummary(s, days) {
   $('k-visits').textContent = fmt(s.totals.visits);
   $('k-pageviews').textContent = fmt(s.totals.pageviews);
   $('k-identified').textContent = fmt(s.identified);
+  $('k-verified').textContent = fmt(s.verified);
   renderBotsNote(s);
 
   // Fill in days with no traffic so gaps show as gaps.
@@ -349,7 +353,8 @@ function renderActivity(rows) {
   if (!rows.length) { $('activity').innerHTML = '<li class="none">No visits yet.</li>'; return; }
   $('activity').innerHTML = rows.map((a) => {
     const name = a.name || a.company || (a.network_type === 'company' ? a.org : null) || [a.city, a.country].filter(Boolean).join(', ') || 'A visitor';
-    return `<li><strong>${esc(name)}</strong> viewed <a href="#" data-visitor="${a.visitor_id}">${esc(a.path)}</a>
+    const real = a.engaged && !a.automated ? `<span class="real-mark" title="${REAL_TITLE}">✓</span>` : '';
+    return `<li>${real}<strong>${esc(name)}</strong> viewed <a href="#" data-visitor="${a.visitor_id}">${esc(a.path)}</a>
       <div class="when">${ago(a.created_at)}${a.city ? ' · ' + esc(a.city) : ''}</div></li>`;
   }).join('');
 }
